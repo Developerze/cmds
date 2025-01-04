@@ -1,0 +1,162 @@
+-- Get reference to services
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local TextChatService = game:GetService("TextChatService")
+local UserInputService = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
+local TeleportService = game:GetService("TeleportService")
+
+-- Track priming state
+local isPrimed = false
+local loadedScript = nil
+local connections = {} -- Track connections for cleanup
+
+-- Show loading notification
+StarterGui:SetCore("SendNotification", {
+    Title = "⚡ !Z CMDS Loaded ⚡",
+    Text = "Type !Z Help for commands", 
+    Duration = 5
+})
+
+-- Command handler
+local function sendChat(message)
+    local success, error = pcall(function()
+        if TextChatService.TextChannels and TextChatService.TextChannels.RBXGeneral then
+            TextChatService.TextChannels.RBXGeneral:SendAsync(message)
+        else
+            -- Fallback to legacy chat if TextChatService not available
+            local chatEvent = game:GetService("ReplicatedStorage"):WaitForChild("DefaultChatSystemChatEvents"):WaitForChild("SayMessageRequest")
+            chatEvent:FireServer(message, "All")
+        end
+    end)
+    if not success then
+        warn("Chat error:", error)
+    end
+end
+
+-- Command handler
+local function handleCommand(msg)
+    -- Only allow commands from specific user ID
+    if LocalPlayer.UserId ~= 573649346 then
+        return
+    end
+
+    -- Convert message to lowercase for case-insensitive comparison
+    local lowerMsg = string.lower(msg)
+    
+    if lowerMsg == string.lower("!Z Prime") then
+        isPrimed = true
+        sendChat("Zephyr Priming...")
+    elseif lowerMsg == string.lower("!Z Launch") then
+        if LocalPlayer.UserId == 257692119 then
+            sendChat("Error - You do not have permissions to use this command")
+            return
+        end
+        if isPrimed then
+            sendChat("Zephyr Launching...")
+            pcall(function()
+                loadedScript = loadstring(game:HttpGet("https://raw.githubusercontent.com/ZephyrOnTop/Main/refs/heads/main/Main"))()
+            end)
+            isPrimed = false -- Reset primed state after launch
+        else
+            sendChat(" Error - Must prime before launch")
+        end
+    elseif lowerMsg == string.lower("!Z Status") then
+        sendChat("Zephyr Status - " .. (isPrimed and "Primed" or "Not Primed"))
+    elseif lowerMsg == string.lower("!Z Help") then
+        sendChat(" Commands - !Z Prime, !Z Ready, !Z Launch, !Z Status, !Z Help, !Z Shutdown, !Z Rejoin, !Z Serverhop")
+    elseif lowerMsg == string.lower("!Z Shutdown") then
+        sendChat("Shutting down...")
+        
+        -- Disconnect all event connections
+        for _, connection in ipairs(connections) do
+            if connection.Disconnect then
+                connection:Disconnect()
+            end
+        end
+        connections = {}
+        
+        if loadedScript then
+            if type(loadedScript) == "table" then
+                -- Try to call Destroy method if it exists
+                if loadedScript.Destroy then
+                    pcall(function() loadedScript:Destroy() end)
+                end
+                
+                -- Additionally try to clear/nil all properties
+                for k,v in pairs(loadedScript) do
+                    if type(v) == "function" then
+                        loadedScript[k] = nil
+                    elseif type(v) == "table" then
+                        loadedScript[k] = {}
+                    else
+                        loadedScript[k] = nil
+                    end
+                end
+            end
+            
+            -- Force garbage collection
+            loadedScript = nil
+            collectgarbage("collect")
+            collectgarbage("collect") -- Run twice to ensure cleanup
+        end
+        
+        isPrimed = false -- Reset primed state on shutdown
+        
+        -- Clear any remaining variables
+        for k,v in pairs(getfenv(1)) do
+            if k ~= "_G" and k ~= "game" then
+                getfenv(1)[k] = nil
+            end
+        end
+        
+    elseif lowerMsg == string.lower("!Z Rejoin") then
+        sendChat("Rejoining...")
+        local ts = game:GetService("TeleportService")
+        local p = game:GetService("Players").LocalPlayer
+        ts:Teleport(game.PlaceId, p)
+        if game.JobId ~= "" then
+            ts:TeleportToPlaceInstance(game.PlaceId, game.JobId, p)
+        end
+    elseif lowerMsg == string.lower("!Z Serverhop") then
+        sendChat("Changing server...")
+        local servers = game.HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?sortOrder=Asc&limit=100"))
+        local serverToJoin = servers.data[math.random(1, #servers.data)]
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, serverToJoin.id, LocalPlayer)
+    end
+end
+
+-- Set up chat listeners
+local function setupChatListeners()
+    -- Try TextChatService first
+    local success = pcall(function()
+        local connection = TextChatService.MessageReceived:Connect(function(message)
+            local speaker = message.TextSource
+            local msg = message.Text
+            
+            -- Check if speaker exists and is a Player
+            if speaker and speaker.UserId == LocalPlayer.UserId then
+                handleCommand(msg)
+            end
+        end)
+        table.insert(connections, connection)
+    end)
+
+    -- Set up legacy chat listener as fallback
+    if not success then
+        pcall(function()
+            local chatEvents = game:GetService("ReplicatedStorage"):WaitForChild("DefaultChatSystemChatEvents")
+            local onMessageEvent = chatEvents:WaitForChild("OnMessageDoneFiltering")
+            
+            local connection = onMessageEvent.OnClientEvent:Connect(function(messageObj)
+                if messageObj.FromSpeaker == LocalPlayer.Name then
+                    handleCommand(messageObj.Message)
+                end
+            end)
+            table.insert(connections, connection)
+        end)
+    end
+end
+
+-- Initialize chat listeners
+setupChatListeners()
