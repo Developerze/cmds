@@ -55,7 +55,6 @@ local function handleCommand(msg)
         if isPrimed then
             sendChat("Zephyr Launching...")
             pcall(function()
-                loadedScript = loadstring(game:HttpGet("https://raw.githubusercontent.com/ZephyrOnTop/Main/refs/heads/main/Main"))()
             end)
             isPrimed = false -- Reset primed state after launch
         else
